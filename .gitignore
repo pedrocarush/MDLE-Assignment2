@@ -2,3 +2,7 @@
 data/*
 ignore
 __pycache__
+results/graphs/*
+results/*.pkl
+
+!results/graphs/.gitkeep
