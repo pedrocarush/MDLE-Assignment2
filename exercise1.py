@@ -257,7 +257,7 @@ def plot_cluster_bars(
     }
 
     attribute_counts = {
-        attribute:np.array([(attribute_counts_for_each_discard_set[cluster_id][attribute] if attribute in attribute_counts_for_each_discard_set[cluster_id] else 0) for cluster_id in cluster_ids])
+        attribute:np.array([(attribute_counts_for_each_discard_set[cluster_id][attribute] if (cluster_id in attribute_counts_for_each_discard_set and attribute in attribute_counts_for_each_discard_set[cluster_id]) else 0) for cluster_id in cluster_ids])
         for attribute in attributes
     }
 
@@ -279,7 +279,7 @@ def plot_cluster_bars(
     ax.set_xticks(ticks=cluster_ids_xs, labels=map(str, cluster_ids))
 
     float_to_fname = lambda f: str(f).replace('.', '-')
-    fig.savefig(f'{parent_folder}/clustering_c{n_clusters}_std{float_to_fname(cluster_distance_threshold_standard_deviations)}_mvt{float_to_fname(compression_set_merge_variance_threshold)}_eps{float_to_fname(dbscan_eps)}.png')
+    fig.savefig(f'{parent_folder}/clustering_{attribute_to_test_label}_c{n_clusters}_std{float_to_fname(cluster_distance_threshold_standard_deviations)}_mvt{float_to_fname(compression_set_merge_variance_threshold)}_eps{float_to_fname(dbscan_eps)}.png')
 
 
 
@@ -325,6 +325,7 @@ def main(
         bfr_cluster_distance_threshold_standard_deviations: float,
         bfr_compression_set_merge_variance_threshold: float,
         bfr_dbscan_eps: float,
+        bfr_results_folder: str,
 ):
     
     spark = SparkSession.builder.getOrCreate()
@@ -373,7 +374,7 @@ def main(
         compression_sets: List[SummarizedCluster] = []
         retained_set: pd.DataFrame = pd.DataFrame(data=[], columns=features_music_columns)
 
-        small_features_pd.groupby("cluster").apply(summarize_cluster_df)
+        small_features_pd.groupby("cluster").apply(summarize_cluster_df, discard_sets)
 
         features_without_small_df = (features_df
             .join(small_tracks_df, "track_id", "left")
@@ -395,7 +396,7 @@ def main(
             loaded_points_pd = loaded_points_df.toPandas()
 
             print_progress(progress, "Clustering with the Mahalanobis distance...")  
-            loaded_points_pd = assign_discard_sets(loaded_points_pd)
+            loaded_points_pd = assign_discard_sets(loaded_points_pd, discard_sets, cluster_distance_threshold)
             
             print_progress(progress, "Calculated and collected Mahalanobis distances")
 
@@ -467,7 +468,7 @@ def main(
 
         compression_sets.clear()
 
-        plot_cluster_bars(spark, tracks_df, 'track-genre_top', 'genre', discard_sets, bfr_cluster_distance_threshold_standard_deviations, bfr_compression_set_merge_variance_threshold, bfr_dbscan_eps, './results/graphs')
+        plot_cluster_bars(spark, tracks_df, 'track-genre_top', 'genre', discard_sets, bfr_cluster_distance_threshold_standard_deviations, bfr_compression_set_merge_variance_threshold, bfr_dbscan_eps, bfr_results_folder)
 
 
 
@@ -482,11 +483,12 @@ if __name__ == '__main__':
     parser.add_argument("--sm-n-clusters-range", type=int, nargs=2, help="range of number of clusters to try for the small subset of the dataset" + default_str, default=(8, 17))
     parser.add_argument("--sm-results-path", type=str, help="path to the small metrics results file" + default_str, default="./results/metrics_pd_array_pickle.pkl")
     parser.add_argument("--bfr-n-clusters", type=int, help="number of clusters to use for the BFR algorithm" + default_str, default=9)
-    parser.add_argument("--bfr-max-memory-used-bytes", type=int, help="maximum memory used by the BFR algorithm in bytes" + default_str, default=1024 * 1024 * 1024)
+    parser.add_argument("--bfr-max-memory-used-bytes", type=int, help="maximum memory used by the BFR algorithm in bytes" + default_str, default=int(.1e9))
     parser.add_argument("--bfr-seed", type=int, help="seed to use for the BFR algorithm" + default_str, default=0)
     parser.add_argument("--bfr-cdt-std", type=float, help="cluster distance threshold in standard deviations to use for the BFR algorithm" + default_str, default=1)
     parser.add_argument("--bfr-cs-mvt", type=float, help="compression set merge variance threshold to use for the BFR algorithm" + default_str, default=1.001)
     parser.add_argument("--bfr-dbscan-eps", type=float, help="DBSCAN epsilon to use for the BFR algorithm" + default_str, default=1000)
+    parser.add_argument("--bfr-results-folder", type=str, help="path of the folder in which the result BFR graph will be stored" + default_str, default="./results/graphs")
 
     args = parser.parse_args()
 
@@ -502,4 +504,5 @@ if __name__ == '__main__':
         bfr_cluster_distance_threshold_standard_deviations=args.bfr_cdt_std,
         bfr_compression_set_merge_variance_threshold=args.bfr_cs_mvt,
         bfr_dbscan_eps=args.bfr_dbscan_eps,
+        bfr_results_folder=args.bfr_results_folder,
     )
