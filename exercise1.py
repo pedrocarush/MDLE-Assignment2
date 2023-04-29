@@ -238,10 +238,7 @@ def plot_cluster_bars(
         attribute_to_test: str,
         attribute_to_test_label: str,
         discard_sets: List[SummarizedCluster],
-        cluster_distance_threshold_standard_deviations: float,
-        compression_set_merge_variance_threshold: float,
-        dbscan_eps: float,
-        parent_folder: str):
+        result_path: str):
     
     n_clusters = len(discard_sets)
     
@@ -289,8 +286,7 @@ def plot_cluster_bars(
     ax.set_ylabel("Count")
     ax.set_xticks(ticks=cluster_ids_xs, labels=map(str, cluster_ids))
 
-    float_to_fname = lambda f: str(f).replace('.', '-')
-    fig.savefig(f'{parent_folder}/clustering_{attribute_to_test_label}_c{n_clusters}_std{float_to_fname(cluster_distance_threshold_standard_deviations)}_mvt{float_to_fname(compression_set_merge_variance_threshold)}_eps{float_to_fname(dbscan_eps)}.png')
+    fig.savefig(result_path)
 
 
 
@@ -337,6 +333,7 @@ def main(
         bfr_compression_set_merge_variance_threshold: float,
         bfr_dbscan_eps: float,
         bfr_results_folder: str,
+        bfr_include_compression_sets: bool,
 ):
     
     spark = SparkSession.builder.getOrCreate()
@@ -472,18 +469,38 @@ def main(
             print_progress((split_idx + 1) / len(split_weights), f"Finished one of the splits (compression sets: {len(compression_sets)}, retained set: {len(retained_set)})")
             print()
 
+        print('Number of elements in...')
+        print('discard sets:', sum(ds.n for ds in discard_sets))
+        print('compression sets:', sum(ds.n for ds in compression_sets))
+        print('retained set:', retained_set.shape[0])
+
         # Step 6 - merge CS into DS, leave RS out for further analysis
-        compression_sets_closest_discard = [
-            (cs, min(((ds.id_, np.sqrt(np.sum(np.square(cs.centroid() - ds.centroid())))) for ds in discard_sets), key=lambda t: t[1])[0])
-            for cs in compression_sets
-        ]
+        if bfr_include_compression_sets:
+            compression_sets_closest_discard = [
+                (cs, min(((ds.id_, np.sqrt(np.sum(np.square(cs.centroid() - ds.centroid())))) for ds in discard_sets), key=lambda t: t[1])[0])
+                for cs in compression_sets
+            ]
 
-        for compression_set, discard_set_id in compression_sets_closest_discard:
-            discard_sets[discard_set_id] = compression_set + discard_sets[discard_set_id]
+            for compression_set, discard_set_id in compression_sets_closest_discard:
+                discard_sets[discard_set_id] = compression_set + discard_sets[discard_set_id]
 
-        compression_sets.clear()
+        attribute_to_test = 'track-genre_top'
+        attribute_to_test_label = attribute_to_test
+        float_to_fname = lambda f: str(f).replace('.', '-')
 
-        plot_cluster_bars(spark, tracks_df, 'track-genre_top', 'genre', discard_sets, bfr_cluster_distance_threshold_standard_deviations, bfr_compression_set_merge_variance_threshold, bfr_dbscan_eps, bfr_results_folder)
+        plot_cluster_bars(
+            spark=spark,
+            tracks_df=tracks_df,
+            attribute_to_test=attribute_to_test,
+            attribute_to_test_label=attribute_to_test_label,
+            discard_sets=discard_sets,
+            result_path=f'{bfr_results_folder}/clustering_{attribute_to_test_label}_'
+                f'c{bfr_n_clusters}_'
+                f'std{float_to_fname(bfr_cluster_distance_threshold_standard_deviations)}_'
+                f'mvt{float_to_fname(bfr_compression_set_merge_variance_threshold)}_'
+                f'eps{float_to_fname(bfr_dbscan_eps)}_'
+                f'{"dc" if bfr_include_compression_sets else "d"}.png',
+        )
 
 
 
@@ -504,6 +521,7 @@ if __name__ == '__main__':
     parser.add_argument("--bfr-cs-mvt", type=float, help="compression set merge variance threshold to use for the BFR algorithm" + default_str, default=1.001)
     parser.add_argument("--bfr-dbscan-eps", type=float, help="DBSCAN epsilon to use for the BFR algorithm" + default_str, default=1000)
     parser.add_argument("--bfr-results-folder", type=str, help="path of the folder in which the result BFR graph will be stored" + default_str, default="./results/graphs")
+    parser.add_argument("--bfr-exclude-compression-sets", action='store_true', help="whether to include the compression sets into the final clusters" + default_str)
 
     args = parser.parse_args()
 
@@ -520,4 +538,5 @@ if __name__ == '__main__':
         bfr_compression_set_merge_variance_threshold=args.bfr_cs_mvt,
         bfr_dbscan_eps=args.bfr_dbscan_eps,
         bfr_results_folder=args.bfr_results_folder,
+        bfr_include_compression_sets=not args.bfr_exclude_compression_sets
     )
