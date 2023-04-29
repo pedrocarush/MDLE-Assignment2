@@ -65,6 +65,8 @@ class SummarizedCluster:
             raise ValueError(f"Addition is not supported between a SummarizedCluster and a '{type(other)}'.")
         if self.id_ is not None and other.id_ is not None and self.id_ != self.other:
             raise ValueError(f"Clusters {self} and {other} have different explicit ids ({self.id_} != {other.id_}).")
+        if self.tracks & other.tracks:
+            raise ValueError(f"The clusters {self} and {other} overlap each other.")
         res = SummarizedCluster(self.sum_.size, self.id_ if self.id_ is not None else other.id_)
         res.n = self.n + other.n
         res.sum_ = self.sum_ + other.sum_
@@ -77,11 +79,20 @@ class SummarizedCluster:
             raise ValueError(f"Addition is not supported between a SummarizedCluster and a '{type(other)}'.")
         if self.id_ is not None and other.id_ is not None and self.id_ != self.other:
             raise ValueError(f"Clusters {self} and {other} have different explicit ids ({self.id_} != {other.id_}).")
+        if self.tracks & other.tracks:
+            raise ValueError(f"The clusters {self} and {other} overlap each other.")
+        self.id_ = self.id_ if self.id_ is not None else other.id_
         self.n = self.n + other.n
         self.sum_ = self.sum_ + other.sum_
         self.sumsq_ = self.sumsq_ + other.sumsq_
         self.tracks = self.tracks | other.tracks
         return self
+
+    def __str__(self) -> str:
+        return f'SummarizedCluster({self.id_}, n={self.n})'
+
+    def __repr__(self) -> str:
+        return str(self)
     
 
 def read_tracks_df(spark: SparkSession, tracks_path: str) -> DataFrame:
@@ -372,7 +383,7 @@ def main(
 
         discard_sets: List[SummarizedCluster] = [SummarizedCluster(len(features_music_columns), id_) for id_ in range(bfr_n_clusters)]
         compression_sets: List[SummarizedCluster] = []
-        retained_set: pd.DataFrame = pd.DataFrame(data=[], columns=features_music_columns)
+        retained_set: pd.DataFrame = pd.DataFrame(data=[], columns=features_df.columns)
 
         small_features_pd.groupby("cluster").apply(summarize_cluster_df, discard_sets)
 
@@ -400,9 +411,9 @@ def main(
             
             print_progress(progress, "Calculated and collected Mahalanobis distances")
 
-            for cluster_id, cluster_df in loaded_points_pd.groupby("cluster_id"):
-                track_ids = cluster_df["track_id"]
-                features_list = cluster_df.iloc[:, 1:519]
+            for cluster_id, cluster_pd in loaded_points_pd.groupby("cluster_id"):
+                track_ids = cluster_pd["track_id"]
+                features_list = cluster_pd[features_music_columns]
 
                 print_progress(progress, f"Evaluating cluster {cluster_id}...")
 
@@ -413,20 +424,23 @@ def main(
                 
                 # Step 4 - check which points go to the compression sets or the retained set
                 else:
-                    matrix_to_cluster = pd.concat(objs=[features_list, retained_set], axis=0)
+                    cluster_with_retained_pd = pd.concat(objs=[cluster_pd, retained_set], axis=0)
 
                     # Use same distance as above
                     clusterer = DBSCAN(eps=bfr_dbscan_eps, metric='euclidean')
-                    clusterer.fit(matrix_to_cluster)
+                    clusterer.fit(cluster_with_retained_pd[features_music_columns])
 
-                    retained_set = matrix_to_cluster[clusterer.labels_ == -1]
+                    retained_set = cluster_with_retained_pd[clusterer.labels_ == -1]
 
                     mini_clusters = set(clusterer.labels_) - {-1}
 
                     # Create compression sets
                     compression_sets_temp = [SummarizedCluster(len(features_music_columns), None) for _ in mini_clusters]
                     for mini_cluster_id in mini_clusters:
-                        compression_sets_temp[mini_cluster_id].summarize_points(matrix_to_cluster[clusterer.labels_ == mini_cluster_id], set(track_ids))
+                        compression_sets_temp[mini_cluster_id].summarize_points(
+                            cluster_with_retained_pd[features_music_columns][clusterer.labels_ == mini_cluster_id], 
+                            set(cluster_with_retained_pd['track_id'][clusterer.labels_ == mini_cluster_id])
+                        )
                     
                     compression_sets.extend(compression_sets_temp)
                 
@@ -456,15 +470,16 @@ def main(
                 print_progress(progress, f"Completed one compression (compression sets: {len(compression_sets)})")
             
             print_progress((split_idx + 1) / len(split_weights), f"Finished one of the splits (compression sets: {len(compression_sets)}, retained set: {len(retained_set)})")
+            print()
 
         # Step 6 - merge CS into DS, leave RS out for further analysis
         compression_sets_closest_discard = [
-            (cs, min(((ds, np.sqrt(np.sum(np.square(cs.centroid() - ds.centroid())))) for ds in discard_sets), key=lambda t: t[1])[0])
+            (cs, min(((ds.id_, np.sqrt(np.sum(np.square(cs.centroid() - ds.centroid())))) for ds in discard_sets), key=lambda t: t[1])[0])
             for cs in compression_sets
         ]
 
-        for compression_set, discard_set in compression_sets_closest_discard:
-            discard_set += compression_set
+        for compression_set, discard_set_id in compression_sets_closest_discard:
+            discard_sets[discard_set_id] = compression_set + discard_sets[discard_set_id]
 
         compression_sets.clear()
 
