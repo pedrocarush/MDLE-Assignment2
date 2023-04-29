@@ -236,7 +236,6 @@ def plot_cluster_bars(
         spark: SparkSession, 
         tracks_df: DataFrame, 
         attribute_to_test: str,
-        attribute_to_test_label: str,
         discard_sets: List[SummarizedCluster],
         result_path: str):
     
@@ -280,7 +279,7 @@ def plot_cluster_bars(
         ax.bar(cluster_ids_xs, attribute_counts[attribute], width, label=attribute, bottom=bottom, color='dimgray' if attribute == 'null' else None)
         bottom += attribute_counts[attribute]
 
-    ax.set_title(f"Number of tracks per {attribute_to_test_label} on each cluster")
+    ax.set_title(f"Number of tracks per '{attribute_to_test}' on each cluster")
     ax.legend(loc="upper right", fontsize=10)
     ax.set_xlabel("Cluster")
     ax.set_ylabel("Count")
@@ -332,6 +331,7 @@ def main(
         bfr_cluster_distance_threshold_standard_deviations: float,
         bfr_compression_set_merge_variance_threshold: float,
         bfr_dbscan_eps: float,
+        bfr_results_attribute_to_test: str,
         bfr_results_folder: str,
         bfr_include_compression_sets: bool,
 ):
@@ -484,17 +484,14 @@ def main(
             for compression_set, discard_set_id in compression_sets_closest_discard:
                 discard_sets[discard_set_id] = compression_set + discard_sets[discard_set_id]
 
-        attribute_to_test = 'track-genre_top'
-        attribute_to_test_label = attribute_to_test
         float_to_fname = lambda f: str(f).replace('.', '-')
 
         plot_cluster_bars(
             spark=spark,
             tracks_df=tracks_df,
-            attribute_to_test=attribute_to_test,
-            attribute_to_test_label=attribute_to_test_label,
+            attribute_to_test=bfr_results_attribute_to_test,
             discard_sets=discard_sets,
-            result_path=f'{bfr_results_folder}/clustering_{attribute_to_test_label}_'
+            result_path=f'{bfr_results_folder}/clustering_{bfr_results_attribute_to_test}_'
                 f'c{bfr_n_clusters}_'
                 f'std{float_to_fname(bfr_cluster_distance_threshold_standard_deviations)}_'
                 f'mvt{float_to_fname(bfr_compression_set_merge_variance_threshold)}_'
@@ -520,6 +517,7 @@ if __name__ == '__main__':
     parser.add_argument("--bfr-cdt-std", type=float, help="cluster distance threshold in standard deviations to use for the BFR algorithm" + default_str, default=1)
     parser.add_argument("--bfr-cs-mvt", type=float, help="compression set merge variance threshold to use for the BFR algorithm" + default_str, default=1.001)
     parser.add_argument("--bfr-dbscan-eps", type=float, help="DBSCAN epsilon to use for the BFR algorithm" + default_str, default=1000)
+    parser.add_argument("--bfr-results-attribute-to-test", type=str, help="on which attribute should the clustering be evaluated on the result BFR graph" + default_str, default='track-genre_top')
     parser.add_argument("--bfr-results-folder", type=str, help="path of the folder in which the result BFR graph will be stored" + default_str, default="./results/graphs")
     parser.add_argument("--bfr-exclude-compression-sets", action='store_true', help="whether to include the compression sets into the final clusters" + default_str)
 
@@ -537,6 +535,7 @@ if __name__ == '__main__':
         bfr_cluster_distance_threshold_standard_deviations=args.bfr_cdt_std,
         bfr_compression_set_merge_variance_threshold=args.bfr_cs_mvt,
         bfr_dbscan_eps=args.bfr_dbscan_eps,
+        bfr_results_attribute_to_test=args.bfr_results_attribute_to_test,
         bfr_results_folder=args.bfr_results_folder,
         bfr_include_compression_sets=not args.bfr_exclude_compression_sets
     )
