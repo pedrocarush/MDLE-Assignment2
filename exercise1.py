@@ -1,3 +1,4 @@
+import json
 import pickle
 import os.path
 import numpy as np
@@ -235,37 +236,51 @@ def mahalanobis_distance_pd(x: pd.DataFrame, s: SummarizedCluster) -> pd.Series:
 def plot_cluster_bars(
         spark: SparkSession, 
         tracks_df: DataFrame, 
-        attribute_to_test: str,
         discard_sets: List[SummarizedCluster],
+        dataset: str,
         result_path: str):
     
     n_clusters = len(discard_sets)
+    cluster_ids = [None] + list(range(n_clusters))
     
     cluster_assignment_df = spark.createDataFrame(
         data=[(track, ds.id_) for ds in discard_sets for track in ds.tracks],
         schema=StructType([StructField('track_id', StringType(), False), StructField('cluster_id', IntegerType(), False)])
     )
 
-    cluster_ids = [None] + list(range(n_clusters))
+    genres_path = os.path.join(dataset, 'genres.csv')
+    genres_colors_path = os.path.join(dataset, 'raw_genres.csv')
 
-    attributes = [row[attribute_to_test] for row in tracks_df.select(attribute_to_test).fillna('null', attribute_to_test).distinct().collect()]
+    genres_df = spark.read.option('header', 'true').csv(genres_path)
+    genres_colors_df = spark.read.option('header', 'true').csv(genres_colors_path)
 
-    attribute_counts_for_each_discard_set = {
-        row['cluster_id']:row['attribute_counts']
+    genres = [row["title"] for row in genres_df.filter(F.col('parent') == 0).sort(F.col('genre_id').cast(IntegerType())).select('title').collect()]
+    genres_colors = {row["title"]:row["genre_color"] for row in genres_df.filter(F.col('parent') == 0).join(genres_colors_df, on='genre_id', how='inner').collect()}
+
+    to_list = F.udf(lambda s: json.loads(s), ArrayType(StringType(), False))
+
+    genre_counts_for_each_discard_set = {
+        row['cluster_id']:row['genre_counts']
         for row in (tracks_df
+            .select('track_id', F.explode(to_list('track-genres_all')).alias('genre_id'))
+            .join(genres_df
+                .filter(F.col('parent') == 0)
+                .select('genre_id', F.col('title').alias('genre_title')),
+                on='genre_id',
+                how='inner')
+            .drop('genre_id')
             .join(cluster_assignment_df, on='track_id', how='left')
-            .select('track_id', 'cluster_id', attribute_to_test)
-            .groupby('cluster_id', attribute_to_test)
+            .select('track_id', 'cluster_id', 'genre_title')
+            .groupby('cluster_id', 'genre_title')
             .agg(F.count('track_id').alias('count'))
-            .fillna('null', attribute_to_test)
             .groupby('cluster_id')
-            .agg(F.map_from_arrays(F.collect_list(attribute_to_test), F.collect_list('count')).alias('attribute_counts'))
+            .agg(F.map_from_arrays(F.collect_list('genre_title'), F.collect_list('count')).alias('genre_counts'))
         ).collect()
     }
 
-    attribute_counts = {
-        attribute:np.array([(attribute_counts_for_each_discard_set[cluster_id][attribute] if (cluster_id in attribute_counts_for_each_discard_set and attribute in attribute_counts_for_each_discard_set[cluster_id]) else 0) for cluster_id in cluster_ids])
-        for attribute in attributes
+    genre_counts = {
+        attribute:np.array([(genre_counts_for_each_discard_set[cluster_id][attribute] if (cluster_id in genre_counts_for_each_discard_set and attribute in genre_counts_for_each_discard_set[cluster_id]) else 0) for cluster_id in cluster_ids])
+        for attribute in genres
     }
 
     width = 0.5
@@ -275,11 +290,11 @@ def plot_cluster_bars(
 
     cluster_ids_xs = [-1] + list(range(n_clusters))
 
-    for attribute in attributes:
-        ax.bar(cluster_ids_xs, attribute_counts[attribute], width, label=attribute, bottom=bottom, color='dimgray' if attribute == 'null' else None)
-        bottom += attribute_counts[attribute]
+    for genre in genres:
+        ax.bar(cluster_ids_xs, genre_counts[genre], width, label=genre, bottom=bottom, color=genres_colors[genre])
+        bottom += genre_counts[genre]
 
-    ax.set_title(f"Number of tracks per '{attribute_to_test}' on each cluster")
+    ax.set_title(f"Number of tracks per genre on each cluster")
     ax.legend(loc="upper right", fontsize=10)
     ax.set_xlabel("Cluster")
     ax.set_ylabel("Count")
@@ -320,8 +335,7 @@ def print_progress(progress: float, message: str):
 
 
 def main(
-        tracks_path: str,
-        features_path: str,
+        dataset: str,
         small_metrics: bool,
         small_metrics_n_clusters_sequence: Sequence[int],
         small_metrics_results_path: str,
@@ -331,11 +345,13 @@ def main(
         bfr_cluster_distance_threshold_standard_deviations: float,
         bfr_compression_set_merge_variance_threshold: float,
         bfr_dbscan_eps: float,
-        bfr_results_attribute_to_test: str,
         bfr_results_folder: str,
         bfr_include_compression_sets: bool,
 ):
     
+    tracks_path = os.path.join(dataset, 'tracks.csv')
+    features_path = os.path.join(dataset, 'features.csv')
+
     spark = SparkSession.builder.getOrCreate()
     
     tracks_df = read_tracks_df(spark, tracks_path)
@@ -489,9 +505,9 @@ def main(
         plot_cluster_bars(
             spark=spark,
             tracks_df=tracks_df,
-            attribute_to_test=bfr_results_attribute_to_test,
             discard_sets=discard_sets,
-            result_path=f'{bfr_results_folder}/clustering_{bfr_results_attribute_to_test}_'
+            dataset=dataset,
+            result_path=f'{bfr_results_folder}/clustering_'
                 f'c{bfr_n_clusters}_'
                 f'std{float_to_fname(bfr_cluster_distance_threshold_standard_deviations)}_'
                 f'mvt{float_to_fname(bfr_compression_set_merge_variance_threshold)}_'
@@ -506,8 +522,7 @@ if __name__ == '__main__':
     default_str = ' (default: %(default)s)'
 
     parser = ArgumentParser()
-    parser.add_argument("--tracks", type=str, help="path to the tracks CSV" + default_str, default="data/tracks.csv")
-    parser.add_argument("--features", type=str, help="path to the features CSV" + default_str, default="data/features.csv")
+    parser.add_argument("--dataset", type=str, help="path to the folder housing the FMA dataset CSV files" + default_str, default="./data")
     parser.add_argument("--small-metrics", action='store_true', help="whether to perform test clustering on the small subset of the dataset only" + default_str)
     parser.add_argument("--sm-n-clusters-range", type=int, nargs=2, help="range of number of clusters to try for the small subset of the dataset" + default_str, default=(8, 17))
     parser.add_argument("--sm-results-path", type=str, help="path to the small metrics results file" + default_str, default="./results/metrics_pd_array_pickle.pkl")
@@ -517,15 +532,13 @@ if __name__ == '__main__':
     parser.add_argument("--bfr-cdt-std", type=float, help="cluster distance threshold in standard deviations to use for the BFR algorithm" + default_str, default=1)
     parser.add_argument("--bfr-cs-mvt", type=float, help="compression set merge variance threshold to use for the BFR algorithm" + default_str, default=1.001)
     parser.add_argument("--bfr-dbscan-eps", type=float, help="DBSCAN epsilon to use for the BFR algorithm" + default_str, default=1000)
-    parser.add_argument("--bfr-results-attribute-to-test", type=str, help="on which attribute should the clustering be evaluated on the result BFR graph" + default_str, default='track-genre_top')
     parser.add_argument("--bfr-results-folder", type=str, help="path of the folder in which the result BFR graph will be stored" + default_str, default="./results/graphs")
     parser.add_argument("--bfr-exclude-compression-sets", action='store_true', help="whether to include the compression sets into the final clusters" + default_str)
 
     args = parser.parse_args()
 
     main(
-        tracks_path=args.tracks,
-        features_path=args.features,
+        dataset=args.dataset,
         small_metrics=args.small_metrics,
         small_metrics_n_clusters_sequence=range(*args.sm_n_clusters_range),
         small_metrics_results_path=args.sm_results_path,
@@ -535,7 +548,6 @@ if __name__ == '__main__':
         bfr_cluster_distance_threshold_standard_deviations=args.bfr_cdt_std,
         bfr_compression_set_merge_variance_threshold=args.bfr_cs_mvt,
         bfr_dbscan_eps=args.bfr_dbscan_eps,
-        bfr_results_attribute_to_test=args.bfr_results_attribute_to_test,
         bfr_results_folder=args.bfr_results_folder,
         bfr_include_compression_sets=not args.bfr_exclude_compression_sets
     )
