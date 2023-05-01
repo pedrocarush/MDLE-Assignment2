@@ -1,11 +1,11 @@
 import os
 import subprocess
 
-
-KS = [9, 10, 11]
-CDT_STDS = [1, 1.5, 2]
-CS_MVTS = [1.001, 1.0001, 1.00001]
-DBSCAN_EPSES = [1000, 1500, 2000]
+KS = [9, 10, 11, 12, 13, 14]
+CDT_STDS = [1, 2, 3]
+CS_MVTS = [1.001]
+DBSCAN_EPSES = [1000]
+EXCLUDE_COMPRESSION_SETS = [True, False]
 
 if __name__ == '__main__':
 
@@ -22,15 +22,16 @@ if __name__ == '__main__':
             for cdt_std in CDT_STDS:
                 for cs_mvt in CS_MVTS:
                     for dbscan_eps in DBSCAN_EPSES:
-                        if n >= skip_n:
-                            subprocess.run(['spark-submit', 'exercise1.py',
-                                '--bfr-n-clusters', str(k),
-                                '--bfr-cdt-std', str(cdt_std),
-                                '--bfr-cs-mvt', str(cs_mvt),
-                                '--bfr-dbscan-eps', str(dbscan_eps),
-                            ])
+                        for exclude_compression_sets in EXCLUDE_COMPRESSION_SETS:
+                            if n >= skip_n:
+                                subprocess.run(['spark-submit', 'exercise1.py',
+                                    '--bfr-n-clusters', str(k),
+                                    '--bfr-cdt-std', str(cdt_std),
+                                    '--bfr-cs-mvt', str(cs_mvt),
+                                    '--bfr-dbscan-eps', str(dbscan_eps),
+                                ] + (['--bfr-exclude-compression-sets'] if exclude_compression_sets else []))
 
-                        n += 1
+                            n += 1
     
     except KeyboardInterrupt:
         with open('exercise1_tries_progress.txt', 'w') as f:
