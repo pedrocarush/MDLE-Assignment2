@@ -238,7 +238,8 @@ def plot_cluster_bars(
         tracks_df: DataFrame, 
         discard_sets: List[SummarizedCluster],
         dataset: str,
-        result_path: str):
+        result_path_number: str,
+        result_path_portion: str):
     
     n_clusters = len(discard_sets)
     cluster_ids = [None] + list(range(n_clusters))
@@ -258,6 +259,8 @@ def plot_cluster_bars(
     genres_colors = {row["title"]:row["genre_color"] for row in genres_df.filter(F.col('parent') == 0).join(genres_colors_df, on='genre_id', how='inner').collect()}
 
     to_list = F.udf(lambda s: json.loads(s), ArrayType(StringType(), False))
+
+    # Total number analysis
 
     genre_counts_for_each_discard_set = {
         row['cluster_id']:row['genre_counts']
@@ -283,7 +286,7 @@ def plot_cluster_bars(
         for attribute in genres
     }
 
-    width = 0.5
+    width = 0.75
 
     fig, ax = plt.subplots(figsize=(9, 7))
     bottom = np.zeros(n_clusters + 1) # include the outliers
@@ -300,7 +303,45 @@ def plot_cluster_bars(
     ax.set_ylabel("Count")
     ax.set_xticks(ticks=cluster_ids_xs, labels=map(str, cluster_ids))
 
-    fig.savefig(result_path)
+    fig.savefig(result_path_number)
+
+    # Top 3 analysis
+
+    genre_counts_for_each_discard_set_top_3_portions = {
+        discard_set:sorted(counts.items(), key=lambda t: t[1], reverse=True)[:3]
+        for discard_set, counts in genre_counts_for_each_discard_set.items()
+    }
+
+    genre_counts_for_each_discard_set_top_3_portions = {
+        discard_set:[(genre, count / sum(count for _, count in top_3)) for genre, count in top_3]
+        for discard_set, top_3 in genre_counts_for_each_discard_set_top_3_portions.items()
+    }
+
+    genre_counts_top_3 = {}
+    for discard_set, top_3 in genre_counts_for_each_discard_set_top_3_portions.items():
+        for genre, portion in top_3:
+            discard_portions = genre_counts_top_3.setdefault(genre, np.zeros((n_clusters + 1,)))
+            if discard_set is None:
+                discard_portions[0] = portion
+            else:
+                discard_portions[discard_set + 1] = portion
+    
+    fig, ax = plt.subplots(figsize=(9, 7))
+    bottom = np.zeros(n_clusters + 1) # include the outliers
+
+    cluster_ids_xs = [-1] + list(range(n_clusters))
+
+    for genre, portions in genre_counts_top_3.items():
+        p = ax.bar(cluster_ids_xs, portions, width, label=genre, bottom=bottom, color=genres_colors[genre])
+        bottom += portions
+
+    ax.set_title("Portion of tracks per genre in the top 3 genres of each cluster")
+    ax.legend(loc="upper right", fontsize=10)
+    ax.set_xlabel("Cluster")
+    ax.set_ylabel("Portion")
+    ax.set_xticks(ticks=cluster_ids_xs, labels=map(str, cluster_ids))
+
+    fig.savefig(result_path_portion)
 
 
 
@@ -507,7 +548,13 @@ def main(
             tracks_df=tracks_df,
             discard_sets=discard_sets,
             dataset=dataset,
-            result_path=f'{bfr_results_folder}/clustering_'
+            result_path_number=f'{bfr_results_folder}/clustering_number_'
+                f'c{bfr_n_clusters}_'
+                f'std{float_to_fname(bfr_cluster_distance_threshold_standard_deviations)}_'
+                f'mvt{float_to_fname(bfr_compression_set_merge_variance_threshold)}_'
+                f'eps{float_to_fname(bfr_dbscan_eps)}_'
+                f'{"dc" if bfr_include_compression_sets else "d"}.png',
+            result_path_portion=f'{bfr_results_folder}/clustering_portion_'
                 f'c{bfr_n_clusters}_'
                 f'std{float_to_fname(bfr_cluster_distance_threshold_standard_deviations)}_'
                 f'mvt{float_to_fname(bfr_compression_set_merge_variance_threshold)}_'
