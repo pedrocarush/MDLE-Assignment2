@@ -1,10 +1,10 @@
 import os
 import subprocess
 
-KS = [9, 10, 11, 12, 13, 14]
-CDT_STDS = [1, 2, 3]
-CS_MVTS = [1.001]
-DBSCAN_EPSES = [1000]
+KS = [11]
+CDT_STDS = [2]
+CS_MVTS = [1.001, 1.01, 1.02, 1.1, 1.5]
+DBSCAN_EPSES = [1000,2000,3000,5000,10000]
 EXCLUDE_COMPRESSION_SETS = [True, False]
 
 if __name__ == '__main__':
