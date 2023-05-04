@@ -11,9 +11,9 @@ from dataclasses import dataclass
 from sklearn.cluster import AgglomerativeClustering, DBSCAN
 from sklearn.neighbors import NearestCentroid
 from pyspark.sql import SparkSession, DataFrame
-from pyspark.sql.types import StringType, ArrayType, FloatType, DoubleType, IntegerType, StructField, StructType
+from pyspark.sql.types import StringType, ArrayType, DoubleType, IntegerType, StructField, StructType
 from itertools import combinations
-from typing import Iterable, Any, List, Sequence, Set, Tuple
+from typing import List, Sequence, Set
 from typing import Union
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from plot_helpers import heatmap, annotate_heatmap
@@ -340,7 +340,7 @@ def plot_cluster_bars(
 
 
 
-def assign_discard_sets(loaded_points_pd: pd.DataFrame, discard_sets: List[SummarizedCluster], cluster_distance_threshold: float) -> pd.DataFrame:
+def assign_discard_sets(loaded_points_pd: pd.DataFrame, discard_sets: List[SummarizedCluster], cluster_distance_threshold: float, features_music_columns: List[str]) -> pd.DataFrame:
     n_clusters = len(discard_sets)
     prefix = "cluster_distance_"
     cluster_distance_columns = [f"{prefix}{i}" for i in range(n_clusters)]
@@ -353,7 +353,7 @@ def assign_discard_sets(loaded_points_pd: pd.DataFrame, discard_sets: List[Summa
     )
 
     for i, discard_set in enumerate(discard_sets):
-        loaded_points_pd[f"cluster_distance_{i}"] = mahalanobis_distance_pd(loaded_points_pd.iloc[:, 1:519], discard_set)
+        loaded_points_pd[f"cluster_distance_{i}"] = mahalanobis_distance_pd(loaded_points_pd[features_music_columns], discard_set)
     loaded_points_pd["min_cluster_distance"] = loaded_points_pd[cluster_distance_columns].min(axis=1)
     loaded_points_pd["cluster_id"] = loaded_points_pd[cluster_distance_columns].idxmin(axis=1).str.slice(start=len(prefix)).astype(np.int32)
 
@@ -456,7 +456,7 @@ def main(
             loaded_points_pd = loaded_points_df.toPandas()
 
             print_progress(progress, "Clustering with the Mahalanobis distance...")  
-            loaded_points_pd = assign_discard_sets(loaded_points_pd, discard_sets, cluster_distance_threshold)
+            loaded_points_pd = assign_discard_sets(loaded_points_pd, discard_sets, cluster_distance_threshold, features_music_columns)
             
             print_progress(progress, "Calculated and collected Mahalanobis distances")
 
@@ -576,7 +576,7 @@ The documentation is present in the notebook."""
     parser.add_argument("--bfr-n-clusters", type=int, help="number of clusters to use for the BFR algorithm" + default_str, default=9)
     parser.add_argument("--bfr-max-memory-used-bytes", type=int, help="maximum memory used by the BFR algorithm in bytes" + default_str, default=int(.1e9))
     parser.add_argument("--bfr-seed", type=int, help="seed to use for the BFR algorithm" + default_str, default=0)
-    parser.add_argument("--bfr-cdt-std", type=float, help="cluster distance threshold in standard deviations to use for the BFR algorithm" + default_str, default=1)
+    parser.add_argument("--bfr-cdt-std", type=float, help="cluster distance threshold in standard deviations to use for the BFR algorithm" + default_str, default=2)
     parser.add_argument("--bfr-cs-mvt", type=float, help="compression set merge variance threshold to use for the BFR algorithm" + default_str, default=1.001)
     parser.add_argument("--bfr-dbscan-eps", type=float, help="DBSCAN epsilon to use for the BFR algorithm" + default_str, default=1000)
     parser.add_argument("--bfr-results-folder", type=str, help="path of the folder in which the result BFR graph will be stored" + default_str, default="./results/graphs")
