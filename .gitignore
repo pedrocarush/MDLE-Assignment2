@@ -4,5 +4,6 @@ ignore
 __pycache__
 results/graphs/*
 results/*.pkl
+results/*.png
 
 !results/graphs/.gitkeep

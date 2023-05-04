@@ -181,7 +181,7 @@ def cluster_agglomeratively(data: pd.DataFrame, n_clusters: int) -> npt.NDArray[
     return centroid_calculator.centroids_
 
 
-def plot_standardized_heatmap(metrics_pd_array: List[pd.DataFrame], n_clusters_sequence: Sequence[int]):
+def plot_standardized_heatmap(metrics_pd_array: List[pd.DataFrame], n_clusters_sequence: Sequence[int], graph_path: str):
     metrics_heatmap = np.array([
         [
             m["density_r"].mean(),
@@ -211,7 +211,7 @@ def plot_standardized_heatmap(metrics_pd_array: List[pd.DataFrame], n_clusters_s
     ax.set_title("Standardized metrics for each of the cluster configurations")
 
     fig.tight_layout()
-    fig.show()
+    fig.savefig(graph_path)
 
 
 def summarize_cluster_df(cluster_df: pd.DataFrame, discard_sets: List[SummarizedCluster]) -> None:
@@ -374,7 +374,7 @@ def main(
         dataset: str,
         small_metrics: bool,
         small_metrics_n_clusters_sequence: Sequence[int],
-        small_metrics_results_path: str,
+        small_metrics_results_folder: str,
         bfr_n_clusters: int,
         bfr_max_memory_used_bytes: int,
         bfr_seed: int,
@@ -406,8 +406,11 @@ def main(
     if small_metrics:
         metrics_pd_array = []
 
-        if os.path.exists(small_metrics_results_path):
-            with open(small_metrics_results_path, 'rb') as f:
+        small_metrics_results_array_path = os.path.join(small_metrics_results_folder, 'metrics_pd_array.pkl')
+        small_metrics_results_graph_path = os.path.join(small_metrics_results_folder, 'metrics_pd_array.png')
+
+        if os.path.exists(small_metrics_results_array_path):
+            with open(small_metrics_results_array_path, 'rb') as f:
                 metrics_pd_array = pickle.load(f)
 
         else:
@@ -416,10 +419,10 @@ def main(
                 centroids = cluster_agglomeratively(small_features_pd, n_clusters)
                 metrics_pd_array.append(small_features_pd.groupby("cluster").apply(calculate_metrics, centroids))
             
-            with open(small_metrics_results_path, 'wb') as f:
+            with open(small_metrics_results_array_path, 'wb') as f:
                 pickle.dump(metrics_pd_array, f)
         
-        plot_standardized_heatmap(metrics_pd_array, small_metrics_n_clusters_sequence)
+        plot_standardized_heatmap(metrics_pd_array, small_metrics_n_clusters_sequence, small_metrics_results_graph_path)
 
     else:
         features_music_columns = features_df.columns.copy()
@@ -573,7 +576,7 @@ The FMA dataset CSVs 'tracks.csv', 'features.csv', 'genres.csv' and 'raw_genres.
     parser.add_argument("--dataset", type=str, help="path to the folder housing the FMA dataset CSV files" + default_str, default="./data")
     parser.add_argument("--small-metrics", action='store_true', help="whether to perform test clustering on the small subset of the dataset only" + default_str)
     parser.add_argument("--sm-n-clusters-range", type=int, nargs=2, help="range of number of clusters to try for the small subset of the dataset" + default_str, default=(8, 17))
-    parser.add_argument("--sm-results-path", type=str, help="path to the small metrics results file" + default_str, default="./results/metrics_pd_array_pickle.pkl")
+    parser.add_argument("--sm-results-folder", type=str, help="path to the small metrics results folder" + default_str, default="./results")
     parser.add_argument("--bfr-n-clusters", type=int, help="number of clusters to use for the BFR algorithm" + default_str, default=9)
     parser.add_argument("--bfr-max-memory-used-bytes", type=int, help="maximum memory used by the BFR algorithm in bytes" + default_str, default=int(.1e9))
     parser.add_argument("--bfr-seed", type=int, help="seed to use for the BFR algorithm" + default_str, default=0)
@@ -589,7 +592,7 @@ The FMA dataset CSVs 'tracks.csv', 'features.csv', 'genres.csv' and 'raw_genres.
         dataset=args.dataset,
         small_metrics=args.small_metrics,
         small_metrics_n_clusters_sequence=range(*args.sm_n_clusters_range),
-        small_metrics_results_path=args.sm_results_path,
+        small_metrics_results_folder=args.sm_results_folder,
         bfr_n_clusters=args.bfr_n_clusters,
         bfr_max_memory_used_bytes=args.bfr_max_memory_used_bytes,
         bfr_seed=args.bfr_seed,
