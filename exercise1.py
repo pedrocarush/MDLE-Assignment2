@@ -15,13 +15,8 @@ from pyspark.sql.types import StringType, ArrayType, FloatType, DoubleType, Inte
 from itertools import combinations
 from typing import Iterable, Any, List, Sequence, Set, Tuple
 from typing import Union
-from argparse import ArgumentParser
+from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from plot_helpers import heatmap, annotate_heatmap
-
-"""
-Python-file version of Exercise 1's Jupyter notebook, for submission via spark-submit.
-The documentation is present in the notebook.
-"""
 
 
 
@@ -568,7 +563,12 @@ if __name__ == '__main__':
 
     default_str = ' (default: %(default)s)'
 
-    parser = ArgumentParser()
+    parser = ArgumentParser(
+        prog="ItemCF",
+        formatter_class=RawDescriptionHelpFormatter,
+        description="""Python-file version of Exercise 1's Jupyter notebook, for submission via spark-submit.
+The documentation is present in the notebook."""
+    )
     parser.add_argument("--dataset", type=str, help="path to the folder housing the FMA dataset CSV files" + default_str, default="./data")
     parser.add_argument("--small-metrics", action='store_true', help="whether to perform test clustering on the small subset of the dataset only" + default_str)
     parser.add_argument("--sm-n-clusters-range", type=int, nargs=2, help="range of number of clusters to try for the small subset of the dataset" + default_str, default=(8, 17))
