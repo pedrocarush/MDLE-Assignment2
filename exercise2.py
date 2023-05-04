@@ -3,16 +3,11 @@ from pyspark import Broadcast
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import ArrayType, DoubleType, IntegerType
 from typing import Iterable, Any, Tuple
-from argparse import ArgumentParser
-
-
-try:
-    import matplotlib.pyplot as plt
-except ImportError:
-    print('Matplotlib could not be imported, graphs won\'t be plotted.')
-    plt = None
+from argparse import ArgumentParser, RawDescriptionHelpFormatter
 
 from pyspark.ml.clustering import BisectingKMeans
+
+
 
 def calculate_user_item_means(df: DataFrame,spark: SparkSession) -> Tuple[Broadcast, Broadcast, float]:
     user_means = {
@@ -132,9 +127,9 @@ def predict_ratings(test_set: DataFrame, train_matrix_with_clusters: DataFrame, 
     )
 
 def main(
-    dataset: str,
-    seed_random: int,
-    n_clusters: int        
+        dataset: str,
+        seed_random: int,
+        n_clusters: int        
 ):
 
     spark = SparkSession.builder.getOrCreate()
@@ -186,11 +181,16 @@ if __name__ == '__main__':
 
     default_str = ' (default: %(default)s)'
 
-    parser = ArgumentParser()
+    parser = ArgumentParser(
+        prog="ItemCF",
+        formatter_class=RawDescriptionHelpFormatter,
+        description="""Python-file version of Exercise 2's Jupyter notebook, for submission via spark-submit.
+The documentation is present in the notebook.
+PySpark version >=3.4.0 is required."""
+    )
     parser.add_argument("--dataset", type=str, help="path to the file housing the MovieLens dataset u.data" + default_str, default="./data/ml-100k/u.data")
     parser.add_argument("--seed", type=int, help="random seed" + default_str, default=1)
     parser.add_argument("--k", type=int, help="number of clusters" + default_str, default=50)
-    parser.add_argument("--min-divisible-cluster-size", type=float, help="argument")
 
     args = parser.parse_args()
 
@@ -198,5 +198,4 @@ if __name__ == '__main__':
         dataset=args.dataset,
         seed_random=args.seed,
         n_clusters=args.k
-        
     )

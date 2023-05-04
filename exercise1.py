@@ -564,10 +564,11 @@ if __name__ == '__main__':
     default_str = ' (default: %(default)s)'
 
     parser = ArgumentParser(
-        prog="ItemCF",
+        prog="ClusteringBFR",
         formatter_class=RawDescriptionHelpFormatter,
         description="""Python-file version of Exercise 1's Jupyter notebook, for submission via spark-submit.
-The documentation is present in the notebook."""
+The documentation is present in the notebook.
+The FMA dataset CSVs 'tracks.csv', 'features.csv', 'genres.csv' and 'raw_genres.csv' all have to be unzipped into the dataset path."""
     )
     parser.add_argument("--dataset", type=str, help="path to the folder housing the FMA dataset CSV files" + default_str, default="./data")
     parser.add_argument("--small-metrics", action='store_true', help="whether to perform test clustering on the small subset of the dataset only" + default_str)
